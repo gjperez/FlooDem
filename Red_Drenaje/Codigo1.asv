@@ -1,0 +1,147 @@
+%% Script, para la modificación del MDT en el cual el objetivo es garantizar las redes 
+% "reales" las cuales son definidas por un mapa de hidrografia de la zona,
+% para esto es necesario, la información del MDT, dirección, acumulación,
+% red derivada, red real (es la de la hidrografia - en formato raster) y el
+% umbral con el cual se generara la red de drenaje
+
+
+%% Codigo1 - en este se modificara el MDT teniendo solo en cuenta las direcciones y
+% el valor de elevación en los pixeles que son redes de drenaje
+
+tic
+%% Se define la ruta de guardado
+% ruta de escritura
+Ruta_Res='D:\Maestria_Ing_Recursos_Hidraulicos\Tesis_Inundaciones\Codigos_Tesis\Corridas\Cuenca3\Resultados\';
+
+%% Se realiza la lectura de los mapas de entrada, inicialmente se realizara 
+% Lectura del MDT, dirección y red_hidrografia
+Ruta_MDT='D:\Maestria_Ing_Recursos_Hidraulicos\Tesis_Inundaciones\Codigos_Tesis\Corridas\Cuenca3\Mapas_ASCII\dem.asc';
+Ruta_red_hidrografia='D:\Maestria_Ing_Recursos_Hidraulicos\Tesis_Inundaciones\Codigos_Tesis\Corridas\Cuenca3\Mapas_ASCII\red.asc';
+ 
+mapa1=importdata(Ruta_MDT,' ',6);
+Encabezado=char(mapa1.textdata);
+clear mapa1
+[Red_hidro Ref]=arcgridread(Ruta_red_hidrografia);
+[Dem Ref]=arcgridread(Ruta_MDT);
+
+%% Se define el valor de NoData
+NoData=-9999;
+Red_hidro(isnan(Red_hidro)==1)=NoData;Dem(isnan(Dem)==1)=NoData;
+
+%% Se calcula el mapa de Dirección, Acumulación y Red de drenaje
+Escribir_Acu=1;
+Escribir_Red=1;
+Umbral=1000;
+[Flowacumulation]=Mapas_Acu_fill_dir(Ref,Dem,Encabezado,Ruta_Res,Escribir_Acu);
+[Red]=Red_derivada(Flowacumulation,Umbral,Encabezado,Ruta_Res,Escribir_Red,NoData);
+
+%% Se ejecuta el algoritmo para modificar los valores de Elevacion en el DEM para garantizar la misma red de drenjae de la hidrografia
+
+%% Se cambia las direcciones de ArcGis a MapWindows, si es el caso, 1 si esta en notación ArcGis, 0 si esta en notación MapWindows
+% Se define la variable Notacion, Notacion = 1 cuando es notacion ArcGis, Notacion = 0 cuando es notacion
+% MapWindows
+'CAMBIANDO DIRECCIONES DE FLUJO A NOTACIÓN MAPWINDOWS'
+Notacion=1;
+Escribir_dir_MW=0;
+%Direccion=CambiarDir_Arc_to_MapW(Direccion,Notacion,Escribir_dir_MW);
+
+%% Se calcula el mapa de acumulación
+% Se crea el mapa de acumulación, este inicialmente crea una matriz de
+% unos.  LISTOOO!!!
+% 'CALCULANDO MAPA DE ACUMULACIÓN'
+% Notacion=0;
+% Escribir_Acu=1;
+% RutaACU='D:\Maestria_Ing_Recursos_Hidraulicos\Tesis_Inundaciones\Codigos_Tesis\Resultados\';
+% Encabezado=char(mapa1.textdata);
+% Acumulacion= Mapa_Acumulacion(Direccion,Notacion,NoData,Escribir_Acu,RutaACU,Encabezado);
+
+%% Se reclasifica toda la red de la hidrografia, para poder localizar, cual es la red principal
+% y poder localizar tambien el punto de mas aguas abajo de la red  principal. LISTOOO!!!
+'RECLASIFICANDO LA RED DE DRENAJE'
+Escribir_Red_Clasi=1;
+set(0,'RecursionLimit',5000)
+[Red_Clasificada]= Clasificacion_Red2(Red_hidro,Escribir_Red_Clasi,NoData,Encabezado,Ruta_Res);
+
+% %% Función que genera una matriz de distancias a la Red de drenaje, con esta se puede emplear para extraer el Buffer de cualqueir distancia
+'CREANDO BUFER'
+Tamano_celda=30;
+Escribir_Buffer=1;
+[Distancias_Red]= Buffer_J(Red_hidro,Escribir_Red_Clasi,NoData,Encabezado,Ruta_Res,Dem,Tamano_celda);
+
+%% FUnción auxiliar que ya hace lectura de los mapas anteriores
+% Ruta_Distancias_Red1='D:\Maestria_Ing_Recursos_Hidraulicos\Tesis_Inundaciones\Codigos_Tesis\Mapas_Ejemplo1\Resultados_San_Jorge\Buffer.asc';
+% Ruta_Red_Clasificada1='D:\Maestria_Ing_Recursos_Hidraulicos\Tesis_Inundaciones\Codigos_Tesis\Mapas_Ejemplo1\Resultados_San_Jorge\Red_Clasificada.asc';
+% Red_Clasificada2=importdata(Ruta_Red_Clasificada1,' ',6);
+% Distancias_Red2=importdata(Ruta_Distancias_Red1,' ',6);
+% Red_Clasificada=Red_Clasificada2.data;
+% Distancias_Red=Distancias_Red2.data;
+% Red_Clasificada=Red_Clasificada';
+% Distancias_Red=Distancias_Red';
+
+%% Función que quema la red de drenaje, garantizando las direcciones y modificando lo menos posible el MDT
+'QUEMANDO RED PRINCIPAL'
+Escribir_Dem_burn=1;
+Incisado=1;
+Delta_caida=0.01;
+Epsilon_min=2; % Diferencias mayores a Epsilon_min metros no se realizara corrección (de aguas abajo a aguas arriba)
+Alpha_min=2; % Diferencias mayores a Epsilon_min metros no se realizara corrección (de aguas arriba a aguas abajo)
+[Dem_Burn,Contador_Clases,Pos_AAb_Red,Matriz_chequeo]=Burning3_Dem(Dem,Red_Clasificada,Escribir_Dem_burn,Encabezado,Ruta_Res,NoData,Incisado,Delta_caida,Epsilon_min,Alpha_min);
+
+%% Función que quema la red de drenaje, garantizando las direcciones y modificando lo menos posible el MDT, en un area aferente
+'QUEMANDO BUFFER'
+Buffer_Burn=5; % Son numero de celdas
+Distancia_Buffer=Buffer_Burn*Tamano_celda;
+Numero_de_rutas=5;
+Escribir_Dem_burn_Buffer=1;
+Delta_Definido1=5;  % La diferencia es adversa
+Delta_Definido2=50; % Mucha diferencia
+Delta_Niivel=0.01;
+[Dem_Burn_Buffer]=Burning_Buffer_Dem(Dem_Burn,Red_hidro,Distancias_Red,Escribir_Dem_burn_Buffer,Encabezado,Ruta_Res,NoData,Distancia_Buffer,Buffer_Burn,Numero_de_rutas);
+
+%% Se vulve a definir el NaN como no Nadata para Red_hidro
+Red_hidro(Red_hidro==NoData)=NaN;
+
+%% Se deriva la red del Dem_Burn y el dem Burn_Buffer
+Dem(Dem==NoData)=NaN;Dem_Burn(Dem_Burn==NoData)=NaN; Dem_Burn_Buffer(Dem_Burn_Buffer==NoData)=NaN;
+Escribir_Acu=0;
+Escribir_Red=1;
+Umbral=1000;
+[Flowacumulation_Burn]=Mapas_Acu_fill_dir(Ref,Dem_Burn,Encabezado,Ruta_Res,Escribir_Acu);
+[Flowacumulation_Burn_Buffer]=Mapas_Acu_fill_dir(Ref,Dem_Burn_Buffer,Encabezado,Ruta_Res,Escribir_Acu);
+Ruta_Red_Burn=[Ruta_Res 'Burn'];
+Ruta_Red_Burn_Buffer=[Ruta_Res 'Burn_Buffer'];
+[Red_Burn]=Red_derivada(Flowacumulation_Burn,Umbral,Encabezado,Ruta_Red_Burn,Escribir_Red,NoData);
+[Red_Burn_Buffer]=Red_derivada(Flowacumulation_Burn_Buffer,Umbral,Encabezado,Ruta_Red_Burn_Buffer,Escribir_Red,NoData);
+
+%% Se muestran los resultados
+% DEMs
+% geoshow(Dem,Ref,'DisplayType','surface')
+% figure
+% geoshow(Dem_Burn,Ref,'DisplayType','surface')
+% figure
+% geoshow(Dem_Burn_Buffer,Ref,'DisplayType','surface')
+% Redes de Drenajes
+% Red(Red==0)=NaN;Red_Burn(Red_Burn==0)=NaN; Red_Burn_Buffer(Red_Burn_Buffer==0)=NaN;
+% figure
+% hold on
+% geoshow(Red_hidro,Ref)
+% geoshow(Red,Ref,'DisplayType','surface')
+% figure
+% geoshow(Red_Burn,Ref)
+% figure
+% geoshow(Red_Burn_Buffer,Ref)
+
+%% Se calculan los errores de las redes de drenajes derivada con respecto a la real
+Distancia_Analisis=500;
+[Coincidencia_Porcentual_Red]=Error_Red(Red_hidro,Red,Distancias_Red,Distancia_Analisis,Tamano_celda);
+[Coincidencia_Porcentual_Red_Burn]=Error_Red(Red_hidro,Red_Burn,Distancias_Red,Distancia_Analisis,Tamano_celda);
+[Coincidencia_Porcentual_Red_Burn_Buffer]=Error_Red(Red_hidro,Red_Burn_Buffer,Distancias_Red,Distancia_Analisis,Tamano_celda);
+
+
+
+toc
+
+
+
+
+
